@@ -12,6 +12,12 @@ bubble:
   enable-animation: true
   # 动画持续时间（秒）
   animation-duration: 0.5
+  # 位置更新频率（tick，1tick=50ms，0=每tick更新，1=每2tick更新，2=每3tick更新）
+  # 设置为0实现完全无延迟跟踪
+  position-update-frequency: 0
+  # 位置变化阈值（小于此值不更新位置，减少网络流量）
+  # 设置为0.0001实现最精确的跟踪
+  position-threshold: 0.0001
 
 # 消息设置
 messages:
@@ -32,6 +38,6 @@ permissions:
 # 调试设置
 debug:
   # 是否启用调试模式
-  enabled: false
+  enabled: true
   # 调试日志级别
   log-level: "INFO"

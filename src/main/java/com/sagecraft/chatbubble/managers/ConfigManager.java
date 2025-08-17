@@ -70,4 +70,12 @@ public class ConfigManager {
     public String getLogLevel() {
         return config.getString("debug.log-level", "INFO");
     }
+    
+    public int getPositionUpdateFrequency() {
+        return config.getInt("bubble.position-update-frequency", 0);
+    }
+    
+    public double getPositionThreshold() {
+        return config.getDouble("bubble.position-threshold", 0.001);
+    }
 }

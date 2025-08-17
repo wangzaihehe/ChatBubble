@@ -4,6 +4,7 @@ import com.sagecraft.chatbubble.ChatBubblePlugin;
 import com.sagecraft.chatbubble.objects.ChatBubble;
 import com.sagecraft.chatbubble.utils.TextUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -155,6 +156,18 @@ public class BubbleManager {
     public void updateBubblePosition(Player player) {
         ChatBubble bubble = activeBubbles.get(player.getUniqueId());
         if (bubble != null) {
+            // 检查玩家是否真的在移动
+            Location currentLocation = player.getLocation();
+            Location lastLocation = bubble.getLocation();
+            
+            // 如果位置没有变化，跳过更新
+            if (lastLocation != null && 
+                Math.abs(currentLocation.getX() - lastLocation.getX()) < 0.001 &&
+                Math.abs(currentLocation.getY() - lastLocation.getY()) < 0.001 &&
+                Math.abs(currentLocation.getZ() - lastLocation.getZ()) < 0.001) {
+                return;
+            }
+            
             plugin.getNMSHandler().updateBubblePosition(bubble);
         }
     }
@@ -168,7 +181,8 @@ public class BubbleManager {
             Bukkit.getScheduler().cancelTask(existingTask);
         }
         
-        // 创建新的位置更新任务（每1tick更新一次，提高流畅度）
+        // 创建新的位置更新任务（根据配置调整更新频率）
+        int frequency = plugin.getConfigManager().getPositionUpdateFrequency();
         int taskId = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (activeBubbles.containsKey(playerId) && player.isOnline()) {
                 updateBubblePosition(player);
@@ -179,7 +193,7 @@ public class BubbleManager {
                     Bukkit.getScheduler().cancelTask(task);
                 }
             }
-        }, 1L, 1L).getTaskId();
+        }, 0L, frequency + 1L).getTaskId();
         
         positionUpdateTasks.put(playerId, taskId);
     }
