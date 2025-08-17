@@ -1,0 +1,21 @@
+name: ChatBubble
+version: '${version}'
+main: com.sagecraft.chatbubble.ChatBubblePlugin
+api-version: '1.21'
+authors: [SageCraft]
+description: 在玩家头顶显示聊天气泡的插件
+website: https://github.com/sagecraft/chatbubble
+
+commands:
+  chatbubble:
+    description: 聊天气泡插件主命令
+    usage: /<command> [reload|toggle]
+    permission: chatbubble.admin
+    
+permissions:
+  chatbubble.admin:
+    description: 允许使用管理命令
+    default: op
+  chatbubble.use:
+    description: 允许使用聊天气泡功能
+    default: true

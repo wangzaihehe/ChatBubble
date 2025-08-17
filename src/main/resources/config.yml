@@ -1,0 +1,37 @@
+# ChatBubble 配置文件
+
+# 气泡设置
+bubble:
+  # 气泡显示时间（秒）
+  display-duration: 10
+  # 气泡高度偏移（相对于玩家头顶）
+  height-offset: 2.5
+  # 气泡大小
+  scale: 1.0
+  # 是否启用动画效果
+  enable-animation: true
+  # 动画持续时间（秒）
+  animation-duration: 0.5
+
+# 消息设置
+messages:
+  # 气泡显示的消息格式
+  format: "&7[&f%player%&7] &f%message%"
+  # 是否显示玩家名称
+  show-player-name: true
+  # 最大消息长度
+  max-length: 50
+
+# 权限设置
+permissions:
+  # 需要权限才能使用气泡
+  require-permission: false
+  # 权限节点
+  permission-node: "chatbubble.use"
+
+# 调试设置
+debug:
+  # 是否启用调试模式
+  enabled: false
+  # 调试日志级别
+  log-level: "INFO"
