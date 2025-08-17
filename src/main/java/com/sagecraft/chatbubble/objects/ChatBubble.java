@@ -28,14 +28,13 @@ public class ChatBubble {
         Location playerLoc = player.getLocation();
         double heightOffset = plugin.getConfigManager().getHeightOffset();
         
-        // 使用玩家的眼睛位置作为基准，确保完全对齐
-        Location eyeLocation = player.getEyeLocation();
-        
+        // 使用玩家模型位置，在头部上方显示气泡
+        // 玩家模型高度约为1.8格，头部位置约为1.6格
         this.location = new Location(
             playerLoc.getWorld(),
-            eyeLocation.getX(),  // 使用眼睛位置的X坐标
-            eyeLocation.getY() + heightOffset,  // 在眼睛位置上方
-            eyeLocation.getZ(),  // 使用眼睛位置的Z坐标
+            playerLoc.getX(),  // 使用玩家模型中心的X坐标
+            playerLoc.getY() + 1.6 + heightOffset,  // 在玩家头部上方
+            playerLoc.getZ(),  // 使用玩家模型中心的Z坐标
             playerLoc.getYaw(),  // 保持相同的朝向
             playerLoc.getPitch()  // 保持相同的俯仰角
         );
