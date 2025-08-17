@@ -5,7 +5,7 @@ bubble:
   # 气泡显示时间（秒）
   display-duration: 10
   # 气泡高度偏移（相对于玩家头顶）
-  height-offset: 2.5
+  height-offset: 0.5
   # 气泡大小
   scale: 1.0
   # 是否启用动画效果

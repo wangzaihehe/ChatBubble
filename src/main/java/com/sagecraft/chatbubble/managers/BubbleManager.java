@@ -16,11 +16,13 @@ public class BubbleManager {
     private final ChatBubblePlugin plugin;
     private final Map<UUID, ChatBubble> activeBubbles;
     private final Map<UUID, Integer> bubbleTasks;
+    private final Map<UUID, Integer> positionUpdateTasks;
     
     public BubbleManager(ChatBubblePlugin plugin) {
         this.plugin = plugin;
         this.activeBubbles = new HashMap<>();
         this.bubbleTasks = new HashMap<>();
+        this.positionUpdateTasks = new HashMap<>();
     }
     
     public void createBubble(Player player, String message) {
@@ -83,6 +85,9 @@ public class BubbleManager {
                 plugin.getNMSHandler().showBubbleToPlayer(bubble, nearby);
             }
         }
+        
+        // 启动位置更新任务（每2tick更新一次，实现丝滑跟随）
+        startPositionUpdateTask(player);
     }
     
     private void scheduleBubbleRemoval(Player player) {
@@ -103,6 +108,9 @@ public class BubbleManager {
         if (taskId != null) {
             Bukkit.getScheduler().cancelTask(taskId);
         }
+        
+        // 停止位置更新任务
+        stopPositionUpdateTask(player);
         
         // 移除气泡
         ChatBubble bubble = activeBubbles.remove(playerId);
@@ -125,6 +133,11 @@ public class BubbleManager {
             Bukkit.getScheduler().cancelTask(taskId);
         }
         bubbleTasks.clear();
+        
+        for (Integer taskId : positionUpdateTasks.values()) {
+            Bukkit.getScheduler().cancelTask(taskId);
+        }
+        positionUpdateTasks.clear();
     }
     
     public boolean hasBubble(Player player) {
@@ -143,6 +156,39 @@ public class BubbleManager {
         ChatBubble bubble = activeBubbles.get(player.getUniqueId());
         if (bubble != null) {
             plugin.getNMSHandler().updateBubblePosition(bubble);
+        }
+    }
+    
+    private void startPositionUpdateTask(Player player) {
+        UUID playerId = player.getUniqueId();
+        
+        // 取消现有的位置更新任务
+        Integer existingTask = positionUpdateTasks.remove(playerId);
+        if (existingTask != null) {
+            Bukkit.getScheduler().cancelTask(existingTask);
+        }
+        
+        // 创建新的位置更新任务（每1tick更新一次，提高流畅度）
+        int taskId = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (activeBubbles.containsKey(playerId) && player.isOnline()) {
+                updateBubblePosition(player);
+            } else {
+                // 玩家离线或气泡已移除，停止任务
+                Integer task = positionUpdateTasks.remove(playerId);
+                if (task != null) {
+                    Bukkit.getScheduler().cancelTask(task);
+                }
+            }
+        }, 1L, 1L).getTaskId();
+        
+        positionUpdateTasks.put(playerId, taskId);
+    }
+    
+    private void stopPositionUpdateTask(Player player) {
+        UUID playerId = player.getUniqueId();
+        Integer taskId = positionUpdateTasks.remove(playerId);
+        if (taskId != null) {
+            Bukkit.getScheduler().cancelTask(taskId);
         }
     }
 }

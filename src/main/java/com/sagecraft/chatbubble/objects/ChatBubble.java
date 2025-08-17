@@ -28,7 +28,17 @@ public class ChatBubble {
         Location playerLoc = player.getLocation();
         double heightOffset = plugin.getConfigManager().getHeightOffset();
         
-        this.location = playerLoc.clone().add(0, heightOffset, 0);
+        // 使用玩家的眼睛位置作为基准，确保完全对齐
+        Location eyeLocation = player.getEyeLocation();
+        
+        this.location = new Location(
+            playerLoc.getWorld(),
+            eyeLocation.getX(),  // 使用眼睛位置的X坐标
+            eyeLocation.getY() + heightOffset,  // 在眼睛位置上方
+            eyeLocation.getZ(),  // 使用眼睛位置的Z坐标
+            playerLoc.getYaw(),  // 保持相同的朝向
+            playerLoc.getPitch()  // 保持相同的俯仰角
+        );
     }
     
     public Player getPlayer() {

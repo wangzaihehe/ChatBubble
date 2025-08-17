@@ -33,13 +33,14 @@ public class ChatListener implements Listener {
         });
     }
     
-    @EventHandler(priority = EventPriority.NORMAL)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        // 更新气泡位置
-        if (plugin.getBubbleManager().hasBubble(event.getPlayer())) {
-            plugin.getBubbleManager().updateBubblePosition(event.getPlayer());
-        }
-    }
+    // 移除移动事件监听，使用定时任务更新位置
+    // @EventHandler(priority = EventPriority.NORMAL)
+    // public void onPlayerMove(PlayerMoveEvent event) {
+    //     // 更新气泡位置
+    //     if (plugin.getBubbleManager().hasBubble(event.getPlayer())) {
+    //         plugin.getBubbleManager().updateBubblePosition(event.getPlayer());
+    //     }
+    // }
     
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerQuit(PlayerQuitEvent event) {
