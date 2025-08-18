@@ -145,6 +145,10 @@ bubble:
 3. **使用 Passengers 系统**：让 TextDisplay 成为玩家的乘客，自动跟随移动
 4. **使用 Translation 属性**：通过 `Translation` 属性来设置高度偏移
 5. **Translation 设置显示位置**：Translation 用于将气泡显示在玩家头顶上方
+6. **Passengers 高度补偿**：减去 passengers 系统自动添加的玩家模型高度(1.8格)
+7. **简化 ChatBubble 类**：移除位置计算功能，只保留数据存储和生命周期管理
+8. **直接构造包**：使用 UNSAFE 直接构造 `ClientboundAddEntityPacket`，不再创建实体实例
+9. **静态访问器**：使用反射获取 TextDisplay 的静态数据访问器，直接构造元数据包
 
 ### 技术实现
 ```java
@@ -171,7 +175,7 @@ Object packet = unsafe.getClass().getMethod("allocateInstance", Class.class)
 
 // 方法2：使用Translation属性设置正确的高度偏移
 double heightOffset = plugin.getConfigManager().getHeightOffset();
-Object vector3f = createVector3f(0.01, 1.6 + heightOffset, 0.01);  // 垂直偏移到玩家头顶上方
+Object vector3f = createVector3f(0.01, (1.6 + heightOffset) - 1.8, 0.01);  // 减去passengers系统自动添加的高度
 Object entityDataAccessor = createEntityDataAccessor(11, EntityDataSerializers.VECTOR3);
 Object dataValue = createDataValue(entityDataAccessor, vector3f);
 ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, dataValues);

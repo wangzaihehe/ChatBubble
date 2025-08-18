@@ -81,11 +81,11 @@ public class BubbleManager {
         plugin.getNMSHandler().showBubble(bubble);
         
         // 向附近玩家显示气泡
-        for (Player nearby : player.getWorld().getPlayers()) {
-            if (nearby.getLocation().distance(player.getLocation()) <= 50) {
-                plugin.getNMSHandler().showBubbleToPlayer(bubble, nearby);
-            }
-        }
+        // for (Player nearby : player.getWorld().getPlayers()) {
+        //     if (nearby.getLocation().distance(player.getLocation()) <= 50) {
+        //         plugin.getNMSHandler().showBubbleToPlayer(bubble, nearby);
+        //     }
+        // }
         
         // 启动位置更新任务（每2tick更新一次，实现丝滑跟随）
         startPositionUpdateTask(player);
@@ -156,18 +156,7 @@ public class BubbleManager {
     public void updateBubblePosition(Player player) {
         ChatBubble bubble = activeBubbles.get(player.getUniqueId());
         if (bubble != null) {
-            // 检查玩家是否真的在移动
-            Location currentLocation = player.getLocation();
-            Location lastLocation = bubble.getLocation();
-            
-            // 如果位置没有变化，跳过更新
-            if (lastLocation != null && 
-                Math.abs(currentLocation.getX() - lastLocation.getX()) < 0.001 &&
-                Math.abs(currentLocation.getY() - lastLocation.getY()) < 0.001 &&
-                Math.abs(currentLocation.getZ() - lastLocation.getZ()) < 0.001) {
-                return;
-            }
-            
+            // 直接调用NMS更新位置，不再依赖ChatBubble的位置计算
             plugin.getNMSHandler().updateBubblePosition(bubble);
         }
     }

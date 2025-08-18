@@ -11,9 +11,6 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.Display;
-import net.minecraft.world.entity.Display.TextDisplay;
-import net.minecraft.world.level.Level;
 import net.minecraft.network.chat.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -35,13 +32,11 @@ public class NMSHandler_1_21 implements NMSHandler {
     private final ChatBubblePlugin plugin;
     private final AtomicInteger entityIdCounter;
     private final ConcurrentHashMap<String, Integer> bubbleEntityIds;
-    private final ConcurrentHashMap<String, Location> bubbleLocations;
     
     public NMSHandler_1_21() {
         this.plugin = ChatBubblePlugin.getInstance();
         this.entityIdCounter = new AtomicInteger(1000000);
         this.bubbleEntityIds = new ConcurrentHashMap<>();
-        this.bubbleLocations = new ConcurrentHashMap<>();
     }
     
     @Override
@@ -50,61 +45,92 @@ public class NMSHandler_1_21 implements NMSHandler {
         String playerName = player.getName();
         
         try {
-            // 创建TextDisplay实体
-            Location location = bubble.getLocation();
+            // 直接使用玩家位置，不再依赖ChatBubble的位置计算
+            Location playerLocation = player.getLocation();
             // 使用反射获取CraftBukkit类，因为包名可能因版本而异
             String craftBukkitPackage = Bukkit.getServer().getClass().getPackageName();
-            Class<?> craftWorldClass = Class.forName(craftBukkitPackage + ".CraftWorld");
             Class<?> craftPlayerClass = Class.forName(craftBukkitPackage + ".entity.CraftPlayer");
             
-            // 获取ServerLevel
-            Object craftWorld = craftWorldClass.cast(location.getWorld());
-            Method getHandleMethod = craftWorldClass.getMethod("getHandle");
-            ServerLevel serverLevel = (ServerLevel) getHandleMethod.invoke(craftWorld);
-            
-            // 创建TextDisplay实体（无体积，专门用于显示文本）
-            TextDisplay textDisplay = new TextDisplay(EntityType.TEXT_DISPLAY, serverLevel);
-            // 直接使用玩家当前位置，与passengers系统保持一致
-            Location playerLocation = player.getLocation();
-            textDisplay.setPos(playerLocation.getX(), playerLocation.getY(), playerLocation.getZ());
-            textDisplay.setText(Component.literal("§f" + bubble.getMessage()));
-            // 使用反射设置私有属性
-            try {
-                Method setBackgroundColorMethod = TextDisplay.class.getDeclaredMethod("setBackgroundColor", int.class);
-                setBackgroundColorMethod.setAccessible(true);
-                setBackgroundColorMethod.invoke(textDisplay, 0x40000000); // 半透明黑色背景
-                
-                Method setLineWidthMethod = TextDisplay.class.getDeclaredMethod("setLineWidth", int.class);
-                setLineWidthMethod.setAccessible(true);
-                setLineWidthMethod.invoke(textDisplay, 200); // 设置行宽
-            } catch (Exception e) {
-                plugin.getPluginLogger().warning("无法设置TextDisplay属性: " + e.getMessage());
-            }
-            textDisplay.setShadowRadius(0.0f); // 无阴影
-            textDisplay.setShadowStrength(0.0f); // 无阴影强度
-            textDisplay.setViewRange(1.0f); // 视野范围
-            textDisplay.setBillboardConstraints(Display.BillboardConstraints.CENTER); // 始终面向玩家
-            
             int entityId = entityIdCounter.incrementAndGet();
-            textDisplay.setId(entityId);
+            java.util.UUID uuid = java.util.UUID.randomUUID();
             
-            // 存储实体ID和位置
+            // 仅存实体ID，不缓存位置
             bubbleEntityIds.put(playerName, entityId);
-            bubbleLocations.put(playerName, playerLocation.clone());
             
-            // 发送实体创建包给所有玩家
-            ClientboundAddEntityPacket addPacket = new ClientboundAddEntityPacket(textDisplay, 0, textDisplay.blockPosition());
+            // 通过UNSAFE构造 AddEntity 包（不创建实体实例）
+            // 关键：初始Y直接放到“最终高度”（头高+蹲伏补偿+配置偏移），避免生成时再跳到目标高度
+            double baseOffsetY = 1.3 + (player.isSneaking() ? -0.3 : 0.0) + plugin.getConfigManager().getHeightOffset();
+            Object addPacket = createAddEntityPacketUnsafe(
+                entityId, uuid,
+                playerLocation.getX(), playerLocation.getY() + baseOffsetY, playerLocation.getZ(),
+                (byte) 0, (byte) 0, (byte) 0,
+                EntityType.TEXT_DISPLAY, 0,
+                0, 0, 0
+            );
             
+            // 构造必要的元数据（不创建实体，直接使用静态访问器）
+            List<SynchedEntityData.DataValue<?>> dataValues = new ArrayList<>();
+            
+            // 文本内容: id=23, serializer=COMPONENT
+            Object dataTextAccessor = createEntityDataAccessor(23, EntityDataSerializers.COMPONENT);
+            Object dataTextValue = createDataValue(dataTextAccessor, Component.literal("§f" + bubble.getMessage()));
+            dataValues.add((SynchedEntityData.DataValue<?>) dataTextValue);
+            
+            // Billboard 约束（始终面向观察者）: id=15, serializer=BYTE, 值=3
+            Object billboardAccessor = createEntityDataAccessor(15, EntityDataSerializers.BYTE);
+            Object billboardValue = createDataValue(billboardAccessor, (byte) 3);
+            dataValues.add((SynchedEntityData.DataValue<?>) billboardValue);
+            
+            // 背景颜色: id=25, serializer=INT
+            Object bgColorAccessor = createEntityDataAccessor(25, EntityDataSerializers.INT);
+            Object bgColorValue = createDataValue(bgColorAccessor, 0x40000000);
+            dataValues.add((SynchedEntityData.DataValue<?>) bgColorValue);
+            
+            // 行宽: id=24, serializer=INT
+            Object lineWidthAccessor = createEntityDataAccessor(24, EntityDataSerializers.INT);
+            Object lineWidthValue = createDataValue(lineWidthAccessor, 200);
+            dataValues.add((SynchedEntityData.DataValue<?>) lineWidthValue);
+            
+            // Translation（用于微调；垂直为0，避免再次抬升导致跳变）: id=11, serializer=VECTOR3
+            double offsetX = 0.01;
+            double offsetY = 0;
+            double offsetZ = 0.01;
+            Object translationAccessor = createEntityDataAccessor(11, EntityDataSerializers.VECTOR3);
+            Object translationVector = createVector3f(offsetX, offsetY, offsetZ);
+            Object translationValue = createDataValue(translationAccessor, translationVector);
+            dataValues.add((SynchedEntityData.DataValue<?>) translationValue);
+            
+            // 使用 Bundle 一次性发送所有包，减少客户端渲染间隙
             for (Player onlinePlayer : plugin.getServer().getOnlinePlayers()) {
                 Object craftPlayer = craftPlayerClass.cast(onlinePlayer);
                 Method getHandleMethod2 = craftPlayerClass.getMethod("getHandle");
                 ServerPlayer serverPlayer = (ServerPlayer) getHandleMethod2.invoke(craftPlayer);
-                serverPlayer.connection.send(addPacket);
                 
-                // 发送实体数据包
-                SynchedEntityData data = textDisplay.getEntityData();
-                ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, data.getNonDefaultValues());
-                serverPlayer.connection.send(dataPacket);
+                try {
+                    // 创建所有包的列表
+                    List<Object> packets = new ArrayList<>();
+                    
+                    // 1. AddEntity 包
+                    packets.add(addPacket);
+                    
+                    // 2. SetEntityData 包
+                    if (!dataValues.isEmpty()) {
+                        ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, dataValues);
+                        packets.add(dataPacket);
+                    }
+                    
+                    // 3. SetPassengers 包
+                    int[] passengers = new int[]{entityId};
+                    Object setPassengersPacket = createSetPassengersPacket(player.getEntityId(), passengers);
+                    packets.add(setPassengersPacket);
+                    
+                    // 使用 Bundle 一次性发送所有包
+                    Object bundlePacket = createBundlePacket(packets);
+                    serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) bundlePacket);
+                    
+                } catch (Exception e) {
+                    plugin.getPluginLogger().warning("发送 Bundle 包时出错: " + e.getMessage());
+                }
             }
             
             plugin.getPluginLogger().info("显示气泡给玩家 " + playerName + ": " + bubble.getMessage());
@@ -117,6 +143,7 @@ public class NMSHandler_1_21 implements NMSHandler {
     
     @Override
     public void showBubbleToPlayer(ChatBubble bubble, Player viewer) {
+        plugin.getPluginLogger().info("showBubbleToPlayer");
         Player player = bubble.getPlayer();
         String playerName = player.getName();
         
@@ -126,54 +153,68 @@ public class NMSHandler_1_21 implements NMSHandler {
                 return; // 没有气泡实体
             }
             
-            // 创建TextDisplay实体
             // 直接使用玩家当前位置，与passengers系统保持一致
             Location playerLocation = player.getLocation();
             
             // 使用反射获取CraftBukkit类
             String craftBukkitPackage = Bukkit.getServer().getClass().getPackageName();
-            Class<?> craftWorldClass = Class.forName(craftBukkitPackage + ".CraftWorld");
             Class<?> craftPlayerClass = Class.forName(craftBukkitPackage + ".entity.CraftPlayer");
             
-            // 获取ServerLevel
-            Object craftWorld = craftWorldClass.cast(playerLocation.getWorld());
-            Method getHandleMethod = craftWorldClass.getMethod("getHandle");
-            ServerLevel serverLevel = (ServerLevel) getHandleMethod.invoke(craftWorld);
+            java.util.UUID uuid = java.util.UUID.randomUUID();
             
-            // 创建TextDisplay实体（无体积，专门用于显示文本）
-            TextDisplay textDisplay = new TextDisplay(EntityType.TEXT_DISPLAY, serverLevel);
-            textDisplay.setPos(playerLocation.getX(), playerLocation.getY(), playerLocation.getZ());
-            textDisplay.setText(Component.literal("§f" + bubble.getMessage()));
-            // 使用反射设置私有属性
-            try {
-                Method setBackgroundColorMethod = TextDisplay.class.getDeclaredMethod("setBackgroundColor", int.class);
-                setBackgroundColorMethod.setAccessible(true);
-                setBackgroundColorMethod.invoke(textDisplay, 0x40000000); // 半透明黑色背景
-                
-                Method setLineWidthMethod = TextDisplay.class.getDeclaredMethod("setLineWidth", int.class);
-                setLineWidthMethod.setAccessible(true);
-                setLineWidthMethod.invoke(textDisplay, 200); // 设置行宽
-            } catch (Exception e) {
-                plugin.getPluginLogger().warning("无法设置TextDisplay属性: " + e.getMessage());
-            }
-            textDisplay.setShadowRadius(0.0f); // 无阴影
-            textDisplay.setShadowStrength(0.0f); // 无阴影强度
-            textDisplay.setViewRange(1.0f); // 视野范围
-            textDisplay.setBillboardConstraints(Display.BillboardConstraints.CENTER); // 始终面向玩家
-            textDisplay.setId(entityId);
+            // 通过UNSAFE构造 AddEntity 包（不创建实体实例）
+            Object addPacket = createAddEntityPacketUnsafe(
+                entityId, uuid,
+                playerLocation.getX(), playerLocation.getY(), playerLocation.getZ(),
+                (byte) 0, (byte) 0, (byte) 0,
+                EntityType.TEXT_DISPLAY, 0,
+                0, 0, 0
+            );
+            
+            // 构造必要的元数据（不创建实体，直接使用静态访问器）
+            List<SynchedEntityData.DataValue<?>> dataValues = new ArrayList<>();
+            
+            // 文本内容
+            Object dataTextAccessor = getStaticAccessor(
+                "net.minecraft.world.entity.Display$TextDisplay", "DATA_TEXT_ID");
+            Object dataTextValue = createDataValue(dataTextAccessor, Component.literal("§f" + bubble.getMessage()));
+            dataValues.add((SynchedEntityData.DataValue<?>) dataTextValue);
+            
+            // 背景颜色
+            Object bgColorAccessor = getStaticAccessor(
+                "net.minecraft.world.entity.Display$TextDisplay", "DATA_BACKGROUND_COLOR_ID");
+            Object bgColorValue = createDataValue(bgColorAccessor, 0x40000000);
+            dataValues.add((SynchedEntityData.DataValue<?>) bgColorValue);
+            
+            // 行宽
+            Object lineWidthAccessor = getStaticAccessor(
+                "net.minecraft.world.entity.Display$TextDisplay", "DATA_LINE_WIDTH_ID");
+            Object lineWidthValue = createDataValue(lineWidthAccessor, 200);
+            dataValues.add((SynchedEntityData.DataValue<?>) lineWidthValue);
+            
+            // Translation（用于高度与微调）
+            double heightOffset = plugin.getConfigManager().getHeightOffset();
+            double offsetX = 0.01;
+            double offsetY = heightOffset;
+            double offsetZ = 0.01;
+            Object translationAccessor = getStaticAccessor(
+                "net.minecraft.world.entity.Display", "DATA_TRANSLATION_ID");
+            Object translationVector = createVector3f(offsetX, offsetY, offsetZ);
+            Object translationValue = createDataValue(translationAccessor, translationVector);
+            dataValues.add((SynchedEntityData.DataValue<?>) translationValue);
             
             Object craftPlayer = craftPlayerClass.cast(viewer);
             Method getHandleMethod2 = craftPlayerClass.getMethod("getHandle");
             ServerPlayer serverPlayer = (ServerPlayer) getHandleMethod2.invoke(craftPlayer);
             
             // 发送实体创建包
-            ClientboundAddEntityPacket addPacket = new ClientboundAddEntityPacket(textDisplay, 0, textDisplay.blockPosition());
-            serverPlayer.connection.send(addPacket);
+            serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) addPacket);
             
             // 发送实体数据包
-            SynchedEntityData data = textDisplay.getEntityData();
-            ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, data.getNonDefaultValues());
-            serverPlayer.connection.send(dataPacket);
+            if (!dataValues.isEmpty()) {
+                ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, dataValues);
+                serverPlayer.connection.send(dataPacket);
+            }
             
         } catch (Exception e) {
             plugin.getPluginLogger().severe("显示气泡给玩家时发生错误: " + e.getMessage());
@@ -188,7 +229,6 @@ public class NMSHandler_1_21 implements NMSHandler {
         
         try {
             Integer entityId = bubbleEntityIds.remove(playerName);
-            bubbleLocations.remove(playerName);
             if (entityId == null) {
                 return; // 没有气泡实体
             }
@@ -225,139 +265,41 @@ public class NMSHandler_1_21 implements NMSHandler {
             if (entityId == null) {
                 return; // 没有气泡实体
             }
-            
-            // 更新位置
-            bubble.updateLocation();
-            Location newLocation = bubble.getLocation();
-            
-            // 获取当前存储的位置
-            Location currentLocation = bubbleLocations.get(playerName);
-            if (currentLocation == null) {
-                // 如果没有存储的位置，直接更新
-                bubbleLocations.put(playerName, newLocation.clone());
-                return;
-            }
-            
-            // 计算位置变化（使用更精确的计算）
-            double deltaX = newLocation.getX() - currentLocation.getX();
-            double deltaY = newLocation.getY() - currentLocation.getY();
-            double deltaZ = newLocation.getZ() - currentLocation.getZ();
-            
-            // 使用配置的阈值，确保更精确的跟踪
-            double threshold = plugin.getConfigManager().getPositionThreshold();
-            if (Math.abs(deltaX) < threshold && Math.abs(deltaY) < threshold && Math.abs(deltaZ) < threshold) {
-                return; // 位置变化太小，跳过更新
-            }
-            
-            if (plugin.getConfigManager().isDebugEnabled()) {
-                plugin.getPluginLogger().info("更新气泡位置: " + playerName + " 从 (" + 
-                    String.format("%.3f,%.3f,%.3f", currentLocation.getX(), currentLocation.getY(), currentLocation.getZ()) + 
-                    ") 到 (" + String.format("%.3f,%.3f,%.3f", newLocation.getX(), newLocation.getY(), newLocation.getZ()) + ")");
-            }
-            
-            // 使用Custom-Nameplates的优化机制：通过Translation属性更新位置
-            // 关键：实体位置固定，只更新Translation属性
+
             String craftBukkitPackage = Bukkit.getServer().getClass().getPackageName();
             Class<?> craftPlayerClass = Class.forName(craftBukkitPackage + ".entity.CraftPlayer");
-            
-            // 创建临时的TextDisplay实体用于生成数据包
-            String craftWorldPackage = Bukkit.getServer().getClass().getPackageName();
-            Class<?> craftWorldClass = Class.forName(craftWorldPackage + ".CraftWorld");
-            
-            Object craftWorld = craftWorldClass.cast(newLocation.getWorld());
-            Method getHandleMethod = craftWorldClass.getMethod("getHandle");
-            ServerLevel serverLevel = (ServerLevel) getHandleMethod.invoke(craftWorld);
-            
-            TextDisplay textDisplay = new TextDisplay(EntityType.TEXT_DISPLAY, serverLevel);
-            // 关键：实体位置直接设置在玩家位置，完全依赖passengers系统
-            // 这样可以让初始生成和移动更新使用相同的机制
-            textDisplay.setPos(newLocation.getX(), newLocation.getY(), newLocation.getZ());
-            textDisplay.setText(Component.literal("§f" + bubble.getMessage()));
-            textDisplay.setId(entityId);
-            
-            // 设置必要的属性
-            try {
-                Method setBackgroundColorMethod = TextDisplay.class.getDeclaredMethod("setBackgroundColor", int.class);
-                setBackgroundColorMethod.setAccessible(true);
-                setBackgroundColorMethod.invoke(textDisplay, 0x40000000);
-                
-                Method setLineWidthMethod = TextDisplay.class.getDeclaredMethod("setLineWidth", int.class);
-                setLineWidthMethod.setAccessible(true);
-                setLineWidthMethod.invoke(textDisplay, 200);
-            } catch (Exception e) {
-                plugin.getPluginLogger().warning("无法设置TextDisplay属性: " + e.getMessage());
-            }
-            textDisplay.setShadowRadius(0.0f);
-            textDisplay.setShadowStrength(0.0f);
-            textDisplay.setViewRange(1.0f);
-            textDisplay.setBillboardConstraints(Display.BillboardConstraints.CENTER);
-            
-            // 关键：使用Passengers系统让TextDisplay跟随玩家移动
-            // 这是Custom-Nameplates实现流畅跟踪的核心技术
+
+            // 只负责：确保乘客关系存在 + 必要时刷新Translation（例如蹲伏变化）
+            double heightOffset = plugin.getConfigManager().getHeightOffset();
+            double offsetX = 0.01;
+            double offsetY = (player.isSneaking() ? -0.3 : 0.0) + heightOffset;
+            double offsetZ = 0.01;
+
+            List<SynchedEntityData.DataValue<?>> runtimeDataValues = new ArrayList<>();
+            Object translationAccessor = getStaticAccessor(
+                "net.minecraft.world.entity.Display", "DATA_TRANSLATION_ID");
+            Object translationVector = createVector3f(offsetX, offsetY, offsetZ);
+            Object translationValue = createDataValue(translationAccessor, translationVector);
+            runtimeDataValues.add((SynchedEntityData.DataValue<?>) translationValue);
+
             for (Player onlinePlayer : plugin.getServer().getOnlinePlayers()) {
                 Object craftPlayer = craftPlayerClass.cast(onlinePlayer);
                 Method getHandleMethod2 = craftPlayerClass.getMethod("getHandle");
                 ServerPlayer serverPlayer = (ServerPlayer) getHandleMethod2.invoke(craftPlayer);
-                
-                // 方法1：使用ClientboundSetPassengersPacket让TextDisplay成为玩家的乘客
+
                 try {
-                    // 获取玩家当前的乘客列表
-                    Set<Integer> currentPassengers = new HashSet<>();
-                    for (org.bukkit.entity.Entity passenger : player.getPassengers()) {
-                        currentPassengers.add(passenger.getEntityId());
-                    }
-                    
-                    // 添加我们的TextDisplay实体到乘客列表
-                    currentPassengers.add(entityId);
-                    
-                    // 创建SetPassengersPacket
-                    int[] passengerArray = currentPassengers.stream().mapToInt(Integer::intValue).toArray();
-                    Object setPassengersPacket = createSetPassengersPacket(player.getEntityId(), passengerArray);
-                    
-                    // 发送数据包
+                    int[] passengers = new int[]{entityId};
+                    Object setPassengersPacket = createSetPassengersPacket(player.getEntityId(), passengers);
                     serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) setPassengersPacket);
-                    
-                    if (plugin.getConfigManager().isDebugEnabled()) {
-                        plugin.getPluginLogger().info("设置乘客: 玩家 " + player.getName() + " 现在有 " + currentPassengers.size() + " 个乘客");
-                    }
                 } catch (Exception e) {
                     plugin.getPluginLogger().warning("设置乘客时出错: " + e.getMessage());
                 }
-                
-                // 方法2：使用Translation属性设置正确的高度偏移
-                try {
-                    // 关键理解：Translation用于设置相对于实体位置的偏移
-                    // 实体位置在玩家位置，通过Translation设置到玩家头顶上方
-                    double heightOffset = plugin.getConfigManager().getHeightOffset();
-                    double offsetX = 0.01;  // 水平微调
-                    double offsetY = 1.6 + heightOffset;  // 垂直偏移到玩家头顶上方
-                    double offsetZ = 0.01;  // 水平微调
-                    
-                    // 使用反射创建Vector3f对象
-                    Object vector3f = createVector3f(offsetX, offsetY, offsetZ);
-                    
-                    // 创建Translation数据值
-                    List<SynchedEntityData.DataValue<?>> dataValues = new ArrayList<>();
-                    
-                    // 获取EntityDataAccessor
-                    Object entityDataAccessor = createEntityDataAccessor(11, EntityDataSerializers.VECTOR3);
-                    
-                    // 创建DataValue
-                    Object dataValue = createDataValue(entityDataAccessor, vector3f);
-                    dataValues.add((SynchedEntityData.DataValue<?>) dataValue);
-                    
-                    // 发送数据包
-                    if (!dataValues.isEmpty()) {
-                        ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, dataValues);
-                        serverPlayer.connection.send(dataPacket);
-                    }
-                } catch (Exception e) {
-                    plugin.getPluginLogger().warning("创建Translation数据值时出错: " + e.getMessage());
+
+                if (!runtimeDataValues.isEmpty()) {
+                    ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, runtimeDataValues);
+                    serverPlayer.connection.send(dataPacket);
                 }
             }
-            
-            // 更新存储的位置
-            bubbleLocations.put(playerName, newLocation.clone());
             
         } catch (Exception e) {
             plugin.getPluginLogger().severe("更新气泡位置时发生错误: " + e.getMessage());
@@ -417,5 +359,60 @@ public class NMSHandler_1_21 implements NMSHandler {
         passengersField.set(packet, passengers);
         
         return packet;
+    }
+    
+    // 辅助方法：使用UNSAFE直接构造ClientboundAddEntityPacket
+    private Object createAddEntityPacketUnsafe(int entityId, java.util.UUID uuid, 
+                                              double x, double y, double z,
+                                              byte yRot, byte xRot, byte headYRot,
+                                              EntityType<?> entityType, int data,
+                                              int xa, int ya, int za) throws Exception {
+        Class<?> addEntityPacketClass = Class.forName("net.minecraft.network.protocol.game.ClientboundAddEntityPacket");
+        
+        // 使用UNSAFE创建实例
+        java.lang.reflect.Field unsafeField = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        Object unsafe = unsafeField.get(null);
+        Object packet = unsafe.getClass().getMethod("allocateInstance", Class.class)
+                .invoke(unsafe, addEntityPacketClass);
+        
+        // 设置各个字段
+        java.lang.reflect.Field[] fields = {
+            addEntityPacketClass.getDeclaredField("id"),
+            addEntityPacketClass.getDeclaredField("uuid"),
+            addEntityPacketClass.getDeclaredField("x"),
+            addEntityPacketClass.getDeclaredField("y"),
+            addEntityPacketClass.getDeclaredField("z"),
+            addEntityPacketClass.getDeclaredField("yRot"),
+            addEntityPacketClass.getDeclaredField("xRot"),
+            addEntityPacketClass.getDeclaredField("type"),
+            addEntityPacketClass.getDeclaredField("data"),
+            addEntityPacketClass.getDeclaredField("xa"),
+            addEntityPacketClass.getDeclaredField("ya"),
+            addEntityPacketClass.getDeclaredField("za")
+        };
+        
+        Object[] values = {entityId, uuid, x, y, z, yRot, xRot, entityType, data, xa, ya, za};
+        
+        for (int i = 0; i < fields.length; i++) {
+            fields[i].setAccessible(true);
+            fields[i].set(packet, values[i]);
+        }
+        
+        return packet;
+    }
+    
+    // 辅助方法：获取静态访问器
+    private Object getStaticAccessor(String className, String fieldName) throws Exception {
+        Class<?> clazz = Class.forName(className);
+        java.lang.reflect.Field field = clazz.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(null);
+    }
+    
+    // 辅助方法：创建 Bundle 包
+    private Object createBundlePacket(List<Object> packets) throws Exception {
+        Class<?> bundlePacketClass = Class.forName("net.minecraft.network.protocol.game.ClientboundBundlePacket");
+        return bundlePacketClass.getConstructor(Iterable.class).newInstance(packets);
     }
 }
