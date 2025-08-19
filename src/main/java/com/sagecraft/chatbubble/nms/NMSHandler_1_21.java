@@ -12,6 +12,8 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.resources.ResourceLocation;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -26,6 +28,9 @@ import java.util.HashSet;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import java.util.UUID;
+import com.sagecraft.chatbubble.utils.SelfIncreaseEntityID;
 
 public class NMSHandler_1_21 implements NMSHandler {
     
@@ -51,15 +56,16 @@ public class NMSHandler_1_21 implements NMSHandler {
             String craftBukkitPackage = Bukkit.getServer().getClass().getPackageName();
             Class<?> craftPlayerClass = Class.forName(craftBukkitPackage + ".entity.CraftPlayer");
             
-            int entityId = entityIdCounter.incrementAndGet();
+            int entityId = SelfIncreaseEntityID.getAndIncrease();
             java.util.UUID uuid = java.util.UUID.randomUUID();
             
             // 仅存实体ID，不缓存位置
             bubbleEntityIds.put(playerName, entityId);
             
-            // 通过UNSAFE构造 AddEntity 包（不创建实体实例）
-            // 关键：初始Y直接放到“最终高度”（头高+蹲伏补偿+配置偏移），避免生成时再跳到目标高度
+            // 关键：初始Y直接放到"最终高度"（头高+蹲伏补偿+配置偏移），避免生成时再跳到目标高度
             double baseOffsetY = 1.3 + (player.isSneaking() ? -0.3 : 0.0) + plugin.getConfigManager().getHeightOffset();
+            
+            // 通过UNSAFE构造 AddEntity 包（不创建实体实例）
             Object addPacket = createAddEntityPacketUnsafe(
                 entityId, uuid,
                 playerLocation.getX(), playerLocation.getY() + baseOffsetY, playerLocation.getZ(),
@@ -71,27 +77,44 @@ public class NMSHandler_1_21 implements NMSHandler {
             // 构造必要的元数据（不创建实体，直接使用静态访问器）
             List<SynchedEntityData.DataValue<?>> dataValues = new ArrayList<>();
             
-            // 文本内容: id=23, serializer=COMPONENT
+            // 文本内容：支持材质包背景
+            String bubbleText = bubble.getBubbleText();
+            String messageText = " " + bubble.getMessage();
+            Component fullComponent;
+            
+            if (bubbleText != null && !bubbleText.isEmpty()) {
+                // 使用材质包背景
+                ResourceLocation fontLocation = createResourceLocation("chatbubble", "default");
+                Component backgroundComponent = Component.literal(bubbleText)
+                    .withStyle(Style.EMPTY.withFont(fontLocation));
+                Component messageComponent = Component.literal(messageText);
+                fullComponent = Component.empty().append(backgroundComponent).append(messageComponent);
+            } else {
+                // 回退到普通文本
+                fullComponent = Component.literal("§f" + bubble.getMessage());
+            }
+            
+            // Text - ID: 23
             Object dataTextAccessor = createEntityDataAccessor(23, EntityDataSerializers.COMPONENT);
-            Object dataTextValue = createDataValue(dataTextAccessor, Component.literal("§f" + bubble.getMessage()));
+            Object dataTextValue = createDataValue(dataTextAccessor, fullComponent);
             dataValues.add((SynchedEntityData.DataValue<?>) dataTextValue);
             
-            // Billboard 约束（始终面向观察者）: id=15, serializer=BYTE, 值=3
+            // Billboard 约束（始终面向观察者）- ID: 15
             Object billboardAccessor = createEntityDataAccessor(15, EntityDataSerializers.BYTE);
             Object billboardValue = createDataValue(billboardAccessor, (byte) 3);
             dataValues.add((SynchedEntityData.DataValue<?>) billboardValue);
             
-            // 背景颜色: id=25, serializer=INT
+            // 背景颜色（透明）- ID: 25
             Object bgColorAccessor = createEntityDataAccessor(25, EntityDataSerializers.INT);
-            Object bgColorValue = createDataValue(bgColorAccessor, 0x40000000);
+            Object bgColorValue = createDataValue(bgColorAccessor, 0x00000000);
             dataValues.add((SynchedEntityData.DataValue<?>) bgColorValue);
             
-            // 行宽: id=24, serializer=INT
+            // 行宽 - ID: 24
             Object lineWidthAccessor = createEntityDataAccessor(24, EntityDataSerializers.INT);
-            Object lineWidthValue = createDataValue(lineWidthAccessor, 200);
+            Object lineWidthValue = createDataValue(lineWidthAccessor, 220);
             dataValues.add((SynchedEntityData.DataValue<?>) lineWidthValue);
             
-            // Translation（用于微调；垂直为0，避免再次抬升导致跳变）: id=11, serializer=VECTOR3
+            // Translation（用于微调；垂直为0，避免再次抬升导致跳变）- ID: 11
             double offsetX = 0.01;
             double offsetY = 0;
             double offsetZ = 0.01;
@@ -125,25 +148,32 @@ public class NMSHandler_1_21 implements NMSHandler {
                     packets.add(setPassengersPacket);
                     
                     // 使用 Bundle 一次性发送所有包
-                    Object bundlePacket = createBundlePacket(packets);
-                    serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) bundlePacket);
+                    if (onlinePlayer.getProtocolVersion() >= 764) { // 1.20.2+
+                        Object bundlePacket = createBundlePacket(packets);
+                        serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) bundlePacket);
+                    } else {
+                        // 1.20.2以下版本单独发送
+                        for (Object packet : packets) {
+                            serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) packet);
+                        }
+                    }
                     
                 } catch (Exception e) {
-                    plugin.getPluginLogger().warning("发送 Bundle 包时出错: " + e.getMessage());
+                    plugin.getLogger().warning("发送 Bundle 包时出错: " + e.getMessage());
                 }
             }
             
-            plugin.getPluginLogger().info("显示气泡给玩家 " + playerName + ": " + bubble.getMessage());
+            plugin.getLogger().info("显示气泡给玩家 " + playerName + ": " + bubble.getMessage());
             
         } catch (Exception e) {
-            plugin.getPluginLogger().severe("显示气泡时发生错误: " + e.getMessage());
+            plugin.getLogger().severe("显示气泡时发生错误: " + e.getMessage());
             e.printStackTrace();
         }
     }
     
     @Override
     public void showBubbleToPlayer(ChatBubble bubble, Player viewer) {
-        plugin.getPluginLogger().info("showBubbleToPlayer");
+        plugin.getLogger().info("showBubbleToPlayer");
         Player player = bubble.getPlayer();
         String playerName = player.getName();
         
@@ -174,31 +204,48 @@ public class NMSHandler_1_21 implements NMSHandler {
             // 构造必要的元数据（不创建实体，直接使用静态访问器）
             List<SynchedEntityData.DataValue<?>> dataValues = new ArrayList<>();
             
-            // 文本内容
-            Object dataTextAccessor = getStaticAccessor(
-                "net.minecraft.world.entity.Display$TextDisplay", "DATA_TEXT_ID");
-            Object dataTextValue = createDataValue(dataTextAccessor, Component.literal("§f" + bubble.getMessage()));
+            // 文本内容：支持材质包背景
+            String bubbleText = bubble.getBubbleText();
+            String messageText = " " + bubble.getMessage();
+            Component fullComponent;
+            
+            if (bubbleText != null && !bubbleText.isEmpty()) {
+                // 使用材质包背景
+                ResourceLocation fontLocation = createResourceLocation("chatbubble", "default");
+                Component backgroundComponent = Component.literal(bubbleText)
+                    .withStyle(Style.EMPTY.withFont(fontLocation));
+                Component messageComponent = Component.literal(messageText);
+                fullComponent = Component.empty().append(backgroundComponent).append(messageComponent);
+            } else {
+                // 回退到普通文本
+                fullComponent = Component.literal("§f" + bubble.getMessage());
+            }
+            
+            // Text - ID: 23
+            Object dataTextAccessor = createEntityDataAccessor(23, EntityDataSerializers.COMPONENT);
+            Object dataTextValue = createDataValue(dataTextAccessor, fullComponent);
             dataValues.add((SynchedEntityData.DataValue<?>) dataTextValue);
             
-            // 背景颜色
-            Object bgColorAccessor = getStaticAccessor(
-                "net.minecraft.world.entity.Display$TextDisplay", "DATA_BACKGROUND_COLOR_ID");
-            Object bgColorValue = createDataValue(bgColorAccessor, 0x40000000);
+            // Billboard 约束（始终面向观察者）- ID: 15
+            Object billboardAccessor = createEntityDataAccessor(15, EntityDataSerializers.BYTE);
+            Object billboardValue = createDataValue(billboardAccessor, (byte) 3);
+            dataValues.add((SynchedEntityData.DataValue<?>) billboardValue);
+            
+            // 背景颜色（透明）- ID: 25
+            Object bgColorAccessor = createEntityDataAccessor(25, EntityDataSerializers.INT);
+            Object bgColorValue = createDataValue(bgColorAccessor, 0x00000000);
             dataValues.add((SynchedEntityData.DataValue<?>) bgColorValue);
             
-            // 行宽
-            Object lineWidthAccessor = getStaticAccessor(
-                "net.minecraft.world.entity.Display$TextDisplay", "DATA_LINE_WIDTH_ID");
-            Object lineWidthValue = createDataValue(lineWidthAccessor, 200);
+            // 行宽 - ID: 24
+            Object lineWidthAccessor = createEntityDataAccessor(24, EntityDataSerializers.INT);
+            Object lineWidthValue = createDataValue(lineWidthAccessor, 220);
             dataValues.add((SynchedEntityData.DataValue<?>) lineWidthValue);
             
-            // Translation（用于高度与微调）
-            double heightOffset = plugin.getConfigManager().getHeightOffset();
+            // Translation（用于微调；垂直为0，避免再次抬升导致跳变）- ID: 11
             double offsetX = 0.01;
-            double offsetY = heightOffset;
+            double offsetY = 0;
             double offsetZ = 0.01;
-            Object translationAccessor = getStaticAccessor(
-                "net.minecraft.world.entity.Display", "DATA_TRANSLATION_ID");
+            Object translationAccessor = createEntityDataAccessor(11, EntityDataSerializers.VECTOR3);
             Object translationVector = createVector3f(offsetX, offsetY, offsetZ);
             Object translationValue = createDataValue(translationAccessor, translationVector);
             dataValues.add((SynchedEntityData.DataValue<?>) translationValue);
@@ -207,17 +254,37 @@ public class NMSHandler_1_21 implements NMSHandler {
             Method getHandleMethod2 = craftPlayerClass.getMethod("getHandle");
             ServerPlayer serverPlayer = (ServerPlayer) getHandleMethod2.invoke(craftPlayer);
             
-            // 发送实体创建包
-            serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) addPacket);
+            // 准备所有要发送的包
+            List<Object> packets = new ArrayList<>();
+            packets.add(addPacket);
             
-            // 发送实体数据包
+            // 添加数据包
             if (!dataValues.isEmpty()) {
                 ClientboundSetEntityDataPacket dataPacket = new ClientboundSetEntityDataPacket(entityId, dataValues);
-                serverPlayer.connection.send(dataPacket);
+                packets.add(dataPacket);
+            }
+            
+            // 使用bundle包发送（1.20.2+）
+            if (viewer.getProtocolVersion() >= 764) { // 1.20.2+
+                try {
+                    Object bundlePacket = createBundlePacket(packets);
+                    serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) bundlePacket);
+                } catch (Exception e) {
+                    plugin.getLogger().warning("发送Bundle包失败，回退到单独发送: " + e.getMessage());
+                    // 回退到单独发送
+                    for (Object packet : packets) {
+                        serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) packet);
+                    }
+                }
+            } else {
+                // 1.20.2以下版本单独发送
+                for (Object packet : packets) {
+                    serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) packet);
+                }
             }
             
         } catch (Exception e) {
-            plugin.getPluginLogger().severe("显示气泡给玩家时发生错误: " + e.getMessage());
+            plugin.getLogger().severe("显示气泡给玩家时发生错误: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -247,10 +314,10 @@ public class NMSHandler_1_21 implements NMSHandler {
                 serverPlayer.connection.send(removePacket);
             }
             
-            plugin.getPluginLogger().info("移除玩家 " + playerName + " 的气泡");
+            plugin.getLogger().info("移除玩家 " + playerName + " 的气泡");
             
         } catch (Exception e) {
-            plugin.getPluginLogger().severe("移除气泡时发生错误: " + e.getMessage());
+            plugin.getLogger().severe("移除气泡时发生错误: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -270,14 +337,12 @@ public class NMSHandler_1_21 implements NMSHandler {
             Class<?> craftPlayerClass = Class.forName(craftBukkitPackage + ".entity.CraftPlayer");
 
             // 只负责：确保乘客关系存在 + 必要时刷新Translation（例如蹲伏变化）
-            double heightOffset = plugin.getConfigManager().getHeightOffset();
             double offsetX = 0.01;
-            double offsetY = (player.isSneaking() ? -0.3 : 0.0) + heightOffset;
+            double offsetY = (player.isSneaking() ? -0.3 : 0.0);
             double offsetZ = 0.01;
 
             List<SynchedEntityData.DataValue<?>> runtimeDataValues = new ArrayList<>();
-            Object translationAccessor = getStaticAccessor(
-                "net.minecraft.world.entity.Display", "DATA_TRANSLATION_ID");
+            Object translationAccessor = createEntityDataAccessor(11, EntityDataSerializers.VECTOR3);
             Object translationVector = createVector3f(offsetX, offsetY, offsetZ);
             Object translationValue = createDataValue(translationAccessor, translationVector);
             runtimeDataValues.add((SynchedEntityData.DataValue<?>) translationValue);
@@ -292,7 +357,7 @@ public class NMSHandler_1_21 implements NMSHandler {
                     Object setPassengersPacket = createSetPassengersPacket(player.getEntityId(), passengers);
                     serverPlayer.connection.send((net.minecraft.network.protocol.Packet<?>) setPassengersPacket);
                 } catch (Exception e) {
-                    plugin.getPluginLogger().warning("设置乘客时出错: " + e.getMessage());
+                    plugin.getLogger().warning("设置乘客时出错: " + e.getMessage());
                 }
 
                 if (!runtimeDataValues.isEmpty()) {
@@ -302,7 +367,7 @@ public class NMSHandler_1_21 implements NMSHandler {
             }
             
         } catch (Exception e) {
-            plugin.getPluginLogger().severe("更新气泡位置时发生错误: " + e.getMessage());
+            plugin.getLogger().severe("更新气泡位置时发生错误: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -363,10 +428,10 @@ public class NMSHandler_1_21 implements NMSHandler {
     
     // 辅助方法：使用UNSAFE直接构造ClientboundAddEntityPacket
     private Object createAddEntityPacketUnsafe(int entityId, java.util.UUID uuid, 
-                                              double x, double y, double z,
-                                              byte yRot, byte xRot, byte headYRot,
-                                              EntityType<?> entityType, int data,
-                                              int xa, int ya, int za) throws Exception {
+                                               double x, double y, double z,
+                                               byte yRot, byte xRot, byte headYRot,
+                                               EntityType<?> entityType, int data,
+                                               int xa, int ya, int za) throws Exception {
         Class<?> addEntityPacketClass = Class.forName("net.minecraft.network.protocol.game.ClientboundAddEntityPacket");
         
         // 使用UNSAFE创建实例
@@ -414,5 +479,32 @@ public class NMSHandler_1_21 implements NMSHandler {
     private Object createBundlePacket(List<Object> packets) throws Exception {
         Class<?> bundlePacketClass = Class.forName("net.minecraft.network.protocol.game.ClientboundBundlePacket");
         return bundlePacketClass.getConstructor(Iterable.class).newInstance(packets);
+    }
+
+    // 辅助方法：使用反射创建ResourceLocation
+    private ResourceLocation createResourceLocation(String namespace, String path) throws Exception {
+        try {
+            // 尝试使用ResourceLocation.of()方法（如果可用）
+            Method ofMethod = ResourceLocation.class.getMethod("of", String.class, String.class);
+            return (ResourceLocation) ofMethod.invoke(null, namespace, path);
+        } catch (NoSuchMethodException e) {
+            // 如果of方法不存在，使用反射创建实例
+            java.lang.reflect.Field unsafeField = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");
+            unsafeField.setAccessible(true);
+            Object unsafe = unsafeField.get(null);
+            ResourceLocation resourceLocation = (ResourceLocation) unsafe.getClass()
+                .getMethod("allocateInstance", Class.class)
+                .invoke(unsafe, ResourceLocation.class);
+            
+            // 设置namespace和path字段
+            java.lang.reflect.Field namespaceField = ResourceLocation.class.getDeclaredField("namespace");
+            java.lang.reflect.Field pathField = ResourceLocation.class.getDeclaredField("path");
+            namespaceField.setAccessible(true);
+            pathField.setAccessible(true);
+            namespaceField.set(resourceLocation, namespace);
+            pathField.set(resourceLocation, path);
+            
+            return resourceLocation;
+        }
     }
 }

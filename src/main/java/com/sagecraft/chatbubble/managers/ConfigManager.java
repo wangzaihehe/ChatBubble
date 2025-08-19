@@ -28,7 +28,7 @@ public class ConfigManager {
     }
     
     public double getHeightOffset() {
-        return config.getDouble("bubble.height-offset", 2.5);
+        return config.getDouble("bubble.height-offset", 0.5);
     }
     
     public double getScale() {
@@ -76,6 +76,36 @@ public class ConfigManager {
     }
     
     public double getPositionThreshold() {
-        return config.getDouble("bubble.position-threshold", 0.001);
+        return config.getDouble("bubble.position-threshold", 0.0001);
+    }
+    
+    // 材质包相关配置
+    public boolean isGenerateResourcePackOnStart() {
+        return config.getBoolean("resource-pack.generate-on-start", true);
+    }
+    
+    public int getPackFormat() {
+        return config.getInt("resource-pack.pack-format", 22);
+    }
+    
+    public String getPackDescription() {
+        return config.getString("resource-pack.description", "ChatBubble Resource Pack");
+    }
+    
+    // Zip相关配置
+    public boolean isGenerateZip() {
+        return config.getBoolean("resource-pack.generate-zip", true);
+    }
+    
+    public String getZipFilename() {
+        return config.getString("resource-pack.zip-filename", "chatbubble-resourcepack.zip");
+    }
+    
+    public boolean isKeepFolder() {
+        return config.getBoolean("resource-pack.keep-folder", true);
+    }
+    
+    public FileConfiguration getConfig() {
+        return config;
     }
 }

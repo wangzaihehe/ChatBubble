@@ -23,6 +23,7 @@ repositories {
 
 dependencies {
     paperweight.paperDevBundle("1.20.4-R0.1-SNAPSHOT")
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 tasks.withType<ProcessResources> {

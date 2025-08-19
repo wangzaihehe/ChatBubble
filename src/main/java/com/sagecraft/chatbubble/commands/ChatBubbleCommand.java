@@ -7,6 +7,8 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.nio.file.Path;
+
 public class ChatBubbleCommand implements CommandExecutor {
     
     private final ChatBubblePlugin plugin;
@@ -41,6 +43,9 @@ public class ChatBubbleCommand implements CommandExecutor {
             case "info":
                 sendInfoMessage(sender);
                 break;
+            case "resourcepack":
+                handleResourcePack(sender);
+                break;
             default:
                 sendHelpMessage(sender);
                 break;
@@ -55,7 +60,19 @@ public class ChatBubbleCommand implements CommandExecutor {
             sender.sendMessage(TextUtils.colorize("&a[ChatBubble] 配置已重新加载！"));
         } catch (Exception e) {
             sender.sendMessage(TextUtils.colorize("&c[ChatBubble] 重新加载配置时发生错误：" + e.getMessage()));
-            plugin.getPluginLogger().severe("重新加载配置时发生错误: " + e.getMessage());
+            plugin.getLogger().severe("重新加载配置时发生错误: " + e.getMessage());
+        }
+    }
+    
+    private void handleResourcePack(CommandSender sender) {
+        try {
+            sender.sendMessage(TextUtils.colorize("&a[ChatBubble] 开始重新生成材质包..."));
+            plugin.getResourcePackManager().generate();
+            sender.sendMessage(TextUtils.colorize("&a[ChatBubble] 材质包生成完成！"));
+        } catch (Exception e) {
+            sender.sendMessage(TextUtils.colorize("&c[ChatBubble] 生成材质包时发生错误：" + e.getMessage()));
+            plugin.getLogger().severe("生成材质包时发生错误: " + e.getMessage());
+            e.printStackTrace();
         }
     }
     
@@ -69,8 +86,29 @@ public class ChatBubbleCommand implements CommandExecutor {
         sender.sendMessage(TextUtils.colorize("&6=== ChatBubble 插件信息 ==="));
         sender.sendMessage(TextUtils.colorize("&e版本: &f" + plugin.getDescription().getVersion()));
         sender.sendMessage(TextUtils.colorize("&e作者: &f" + String.join(", ", plugin.getDescription().getAuthors())));
-        sender.sendMessage(TextUtils.colorize("&eNMS版本: &f" + plugin.getNMSHandler().getVersion()));
+        sender.sendMessage(TextUtils.colorize("&eNMS版本: &f" + plugin.getNmsHandler().getVersion()));
         sender.sendMessage(TextUtils.colorize("&e活跃气泡数: &f" + plugin.getBubbleManager().getActiveBubblesCount()));
+        
+        // 显示材质包信息
+        Path zipPath = plugin.getResourcePackManager().getZipFilePath();
+        if (zipPath.toFile().exists()) {
+            long fileSize = zipPath.toFile().length();
+            String sizeStr = formatFileSize(fileSize);
+            sender.sendMessage(TextUtils.colorize("&e材质包zip: &f" + zipPath.getFileName()));
+            sender.sendMessage(TextUtils.colorize("&e文件大小: &f" + sizeStr));
+        } else {
+            sender.sendMessage(TextUtils.colorize("&c材质包zip文件不存在"));
+        }
+    }
+    
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        } else if (bytes < 1024 * 1024) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        } else {
+            return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
+        }
     }
     
     private void sendHelpMessage(CommandSender sender) {
@@ -78,5 +116,6 @@ public class ChatBubbleCommand implements CommandExecutor {
         sender.sendMessage(TextUtils.colorize("&e/chatbubble reload &7- 重新加载配置"));
         sender.sendMessage(TextUtils.colorize("&e/chatbubble toggle &7- 切换个人开关"));
         sender.sendMessage(TextUtils.colorize("&e/chatbubble info &7- 显示插件信息"));
+        sender.sendMessage(TextUtils.colorize("&e/chatbubble resourcepack &7- 重新生成材质包"));
     }
 }

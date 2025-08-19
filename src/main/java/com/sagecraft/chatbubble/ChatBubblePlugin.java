@@ -4,6 +4,7 @@ import com.sagecraft.chatbubble.commands.ChatBubbleCommand;
 import com.sagecraft.chatbubble.listeners.ChatListener;
 import com.sagecraft.chatbubble.managers.BubbleManager;
 import com.sagecraft.chatbubble.managers.ConfigManager;
+import com.sagecraft.chatbubble.managers.ResourcePackManager;
 import com.sagecraft.chatbubble.nms.NMSHandler;
 import com.sagecraft.chatbubble.nms.NMSHandler_1_21;
 import org.bukkit.Bukkit;
@@ -16,6 +17,7 @@ public class ChatBubblePlugin extends JavaPlugin {
     private static ChatBubblePlugin instance;
     private ConfigManager configManager;
     private BubbleManager bubbleManager;
+    private ResourcePackManager resourcePackManager;
     private NMSHandler nmsHandler;
     private Logger logger;
     
@@ -40,6 +42,9 @@ public class ChatBubblePlugin extends JavaPlugin {
         
         // 初始化管理器
         initializeManagers();
+        
+        // 生成材质包
+        generateResourcePack();
         
         // 注册监听器
         registerListeners();
@@ -77,6 +82,22 @@ public class ChatBubblePlugin extends JavaPlugin {
         
         // 初始化气泡管理器
         bubbleManager = new BubbleManager(this);
+        
+        // 初始化材质包管理器
+        resourcePackManager = new ResourcePackManager(this);
+    }
+    
+    private void generateResourcePack() {
+        if (configManager.isGenerateResourcePackOnStart()) {
+            logger.info("开始生成材质包...");
+            try {
+                resourcePackManager.generate();
+                logger.info("材质包生成完成！");
+            } catch (Exception e) {
+                logger.severe("材质包生成失败: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
     }
     
     private void initializeNMSHandler() {
@@ -98,6 +119,7 @@ public class ChatBubblePlugin extends JavaPlugin {
         getCommand("chatbubble").setExecutor(new ChatBubbleCommand(this));
     }
     
+    // Getter方法
     public static ChatBubblePlugin getInstance() {
         return instance;
     }
@@ -110,11 +132,11 @@ public class ChatBubblePlugin extends JavaPlugin {
         return bubbleManager;
     }
     
-    public NMSHandler getNMSHandler() {
-        return nmsHandler;
+    public ResourcePackManager getResourcePackManager() {
+        return resourcePackManager;
     }
     
-    public Logger getPluginLogger() {
-        return logger;
+    public NMSHandler getNmsHandler() {
+        return nmsHandler;
     }
 }

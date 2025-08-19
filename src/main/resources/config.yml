@@ -41,3 +41,98 @@ debug:
   enabled: true
   # 调试日志级别
   log-level: "INFO"
+
+# 材质包设置
+resource-pack:
+  # 是否在插件启动时生成材质包
+  generate-on-start: true
+  # 材质包版本格式
+  pack-format: 22
+  # 材质包描述
+  description: "ChatBubble Resource Pack"
+  # 是否生成zip文件
+  generate-zip: true
+  # zip文件名
+  zip-filename: "chatbubble-resourcepack.zip"
+  # 是否保留ResourcePack文件夹
+  keep-folder: true
+
+# 字体图片配置
+font_images:
+  # === Chat Bubble 3-slice (13px) ===
+  chatl_13:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatl_13.png"
+    scale_ratio: 13
+    y_position: 8
+  chatm_13:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatm_13.png"
+    scale_ratio: 13
+    y_position: 8
+  chatr_13:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatr_13.png"
+    scale_ratio: 13
+    y_position: 8
+  chatt_13:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatt_13.png"
+    scale_ratio: 13
+    y_position: 8
+
+  # === Chat Bubble 3-slice (23px) ===
+  chatl_23:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatl_23.png"
+    scale_ratio: 23
+    y_position: 18
+  chatm_23:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatm_23.png"
+    scale_ratio: 23
+    y_position: 18
+  chatr_23:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatr_23.png"
+    scale_ratio: 23
+    y_position: 18
+  chatt_23:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatt_23.png"
+    scale_ratio: 23
+    y_position: 18
+
+  # === Chat Bubble 3-slice (33px) ===
+  chatl_33:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatl_33.png"
+    scale_ratio: 33
+    y_position: 28
+  chatm_33:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatm_33.png"
+    scale_ratio: 33
+    y_position: 28
+  chatr_33:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatr_33.png"
+    scale_ratio: 33
+    y_position: 28
+  chatt_33:
+    show_in_gui: false
+    suggest_in_command: false
+    path: "chatt_33.png"
+    scale_ratio: 33
+    y_position: 28

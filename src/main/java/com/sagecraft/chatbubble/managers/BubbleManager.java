@@ -4,9 +4,7 @@ import com.sagecraft.chatbubble.ChatBubblePlugin;
 import com.sagecraft.chatbubble.objects.ChatBubble;
 import com.sagecraft.chatbubble.utils.TextUtils;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -15,35 +13,23 @@ import java.util.UUID;
 public class BubbleManager {
     
     private final ChatBubblePlugin plugin;
-    private final Map<UUID, ChatBubble> activeBubbles;
-    private final Map<UUID, Integer> bubbleTasks;
-    private final Map<UUID, Integer> positionUpdateTasks;
+    private final Map<UUID, ChatBubble> activeBubbles = new HashMap<>();
+    private final Map<UUID, Integer> bubbleTasks = new HashMap<>();
+    private final Map<UUID, Integer> positionUpdateTasks = new HashMap<>();
     
     public BubbleManager(ChatBubblePlugin plugin) {
         this.plugin = plugin;
-        this.activeBubbles = new HashMap<>();
-        this.bubbleTasks = new HashMap<>();
-        this.positionUpdateTasks = new HashMap<>();
     }
     
     public void createBubble(Player player, String message) {
-        // 检查权限
-        if (plugin.getConfigManager().isPermissionRequired()) {
-            if (!player.hasPermission(plugin.getConfigManager().getPermissionNode())) {
-                return;
-            }
-        }
-        
-        // 移除现有气泡
+        // 移除现有的气泡
         removeBubble(player);
         
         // 格式化消息
         String formattedMessage = formatMessage(player, message);
         
-        // 创建新气泡
-        ChatBubble bubble = new ChatBubble(player, formattedMessage, plugin);
-        
-        // 存储气泡
+        // 创建新的气泡
+        ChatBubble bubble = new ChatBubble(plugin, player, formattedMessage);
         activeBubbles.put(player.getUniqueId(), bubble);
         
         // 显示气泡
@@ -53,7 +39,7 @@ public class BubbleManager {
         scheduleBubbleRemoval(player);
         
         if (plugin.getConfigManager().isDebugEnabled()) {
-            plugin.getPluginLogger().info("为玩家 " + player.getName() + " 创建气泡: " + message);
+            plugin.getLogger().info("为玩家 " + player.getName() + " 创建气泡: " + message);
         }
     }
     
@@ -78,14 +64,7 @@ public class BubbleManager {
         Player player = bubble.getPlayer();
         
         // 使用NMS显示气泡
-        plugin.getNMSHandler().showBubble(bubble);
-        
-        // 向附近玩家显示气泡
-        // for (Player nearby : player.getWorld().getPlayers()) {
-        //     if (nearby.getLocation().distance(player.getLocation()) <= 50) {
-        //         plugin.getNMSHandler().showBubbleToPlayer(bubble, nearby);
-        //     }
-        // }
+        plugin.getNmsHandler().showBubble(bubble);
         
         // 启动位置更新任务（每2tick更新一次，实现丝滑跟随）
         startPositionUpdateTask(player);
@@ -116,17 +95,17 @@ public class BubbleManager {
         // 移除气泡
         ChatBubble bubble = activeBubbles.remove(playerId);
         if (bubble != null) {
-            plugin.getNMSHandler().removeBubble(bubble);
+            plugin.getNmsHandler().removeBubble(bubble);
             
             if (plugin.getConfigManager().isDebugEnabled()) {
-                plugin.getPluginLogger().info("移除玩家 " + player.getName() + " 的气泡");
+                plugin.getLogger().info("移除玩家 " + player.getName() + " 的气泡");
             }
         }
     }
     
     public void removeAllBubbles() {
         for (ChatBubble bubble : activeBubbles.values()) {
-            plugin.getNMSHandler().removeBubble(bubble);
+            plugin.getNmsHandler().removeBubble(bubble);
         }
         activeBubbles.clear();
         
@@ -153,36 +132,22 @@ public class BubbleManager {
         return activeBubbles.size();
     }
     
-    public void updateBubblePosition(Player player) {
-        ChatBubble bubble = activeBubbles.get(player.getUniqueId());
-        if (bubble != null) {
-            // 直接调用NMS更新位置，不再依赖ChatBubble的位置计算
-            plugin.getNMSHandler().updateBubblePosition(bubble);
-        }
-    }
-    
     private void startPositionUpdateTask(Player player) {
         UUID playerId = player.getUniqueId();
         
         // 取消现有的位置更新任务
-        Integer existingTask = positionUpdateTasks.remove(playerId);
-        if (existingTask != null) {
-            Bukkit.getScheduler().cancelTask(existingTask);
-        }
+        stopPositionUpdateTask(player);
         
-        // 创建新的位置更新任务（根据配置调整更新频率）
         int frequency = plugin.getConfigManager().getPositionUpdateFrequency();
+        if (frequency < 0) return; // 禁用位置更新
+        
         int taskId = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (activeBubbles.containsKey(playerId) && player.isOnline()) {
-                updateBubblePosition(player);
-            } else {
-                // 玩家离线或气泡已移除，停止任务
-                Integer task = positionUpdateTasks.remove(playerId);
-                if (task != null) {
-                    Bukkit.getScheduler().cancelTask(task);
-                }
+            ChatBubble bubble = activeBubbles.get(playerId);
+            if (bubble != null) {
+                // 直接调用NMS更新位置，不再依赖ChatBubble的位置计算
+                plugin.getNmsHandler().updateBubblePosition(bubble);
             }
-        }, 0L, frequency + 1L).getTaskId();
+        }, frequency + 1, frequency + 1).getTaskId();
         
         positionUpdateTasks.put(playerId, taskId);
     }
